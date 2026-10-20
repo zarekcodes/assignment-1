@@ -54,7 +54,7 @@ class BookBase(BaseModel):
     )
 
     # Normalizing here means "978-0-13-595705-9" and "9780135957059" are
-    # recognized as the same ISBN by the uniqueness check in the router.
+    # recognized as the same ISBN by the uniqueness check in the service.
     @field_validator("isbn")
     @classmethod
     def normalize_isbn(cls, value: str) -> str:
@@ -89,6 +89,10 @@ class BookUpdate(BookBase):
 
 class BookResponse(BookBase):
     """Describe a Book returned by the API."""
+
+    # Pydantic reads values from SQLAlchemy model attributes, not only from
+    # dictionaries, so routes can return ORM objects through this schema.
+    model_config = ConfigDict(from_attributes=True)
 
     id: int = Field(
         gt=0,

@@ -2,13 +2,13 @@
 
 The Library Management System API is a backend that library staff use to manage **Members** and the **Books** they borrow. Staff can create, view, update, and delete both resources. Each Book is borrowed by exactly one existing Member, and a Member can borrow many Books.
 
-This is Assignment 1 for SDEV 3310. It covers REST design, CRUD operations, Pydantic validation, and the OpenAPI contract. Data is kept in memory for now. Assignment 2 will replace it with SQLAlchemy and a relational database.
+This is Assignment 2 for SDEV 3310. It builds on Assignment 1 by storing data in **PostgreSQL** through **SQLAlchemy 2.x** and **Psycopg**, and by organizing the code into routers, services, repositories, ORM models, and schemas. The original in-memory storage is still available as an alternative backend.
 
-## Requirements
+## Prerequisites
 
-- [uv](https://docs.astral.sh/uv/)
-
-`uv` manages the Python version, the virtual environment, and the project dependencies.
+- [uv](https://docs.astral.sh/uv/) — manages the Python version, virtual environment, and dependencies
+- [PostgreSQL](https://www.postgresql.org/download/) 14 or later, running locally on port `5432`
+- Git
 
 ### Install uv
 
@@ -24,40 +24,84 @@ Windows PowerShell:
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Restart your terminal, then check the installation:
+Restart your terminal, then check the installation with `uv --version`.
 
-```bash
-uv --version
-```
-
-### Set up the project
-
-Clone the repository and switch to the assignment branch:
+## 1. Get the code
 
 ```bash
 git clone <repository-url>
 cd <repository-folder>
-git checkout assignment-1
+git switch assignment-2
 ```
 
-From the repository root, run:
+## 2. Set up PostgreSQL
+
+Install PostgreSQL and make sure the server is running:
+
+- **Windows:** use the [EDB installer](https://www.postgresql.org/download/windows/). It creates a `postgres` user and starts the server as a service. When it asks for a password, use `postgres` for this local course project, or use your own and put it in `.env` in step 3.
+- **macOS:** `brew install postgresql@18` and then `brew services start postgresql@18`.
+- **Linux:** install the `postgresql` package from your distribution, initialize the cluster if your distribution requires it, and start the `postgresql` service.
+
+Then create the database. From the repository root, run:
+
+```bash
+psql -d postgres -f scripts/setup_database.sql
+```
+
+If `psql` asks who you are or refuses the connection, add the user and host: `psql -h localhost -U postgres -d postgres -f scripts/setup_database.sql`. On Windows, if `psql` is not on your `PATH`, use its full path, for example `& "C:\Program Files\PostgreSQL\18\bin\psql.exe"`.
+
+The script creates a `postgres` login role (password `postgres`) if one does not exist, and a `library_management` database owned by it. It is safe to run more than once; it never deletes existing data.
+
+You do not create tables yourself. On startup, the API creates the `members` and `books` tables if they are missing.
+
+## 3. Configure the application
+
+Copy the sample environment file:
+
+```bash
+cp .env.example .env
+```
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `STORAGE_BACKEND` | `database` | `database` stores data in PostgreSQL. `memory` stores it in Python lists that are lost when the API stops. |
+| `DATABASE_URL` | none | Required when `STORAGE_BACKEND=database`. Format: `postgresql+psycopg://USER:PASSWORD@HOST:PORT/DATABASE` |
+| `DATABASE_ECHO_SQL` | `false` | Set to `true` to print every SQL statement SQLAlchemy sends to PostgreSQL. |
+
+The sample `DATABASE_URL` matches the setup script:
+
+```text
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/library_management
+```
+
+`postgres:postgres` is a local development credential only. Never reuse it in production; real deployments load credentials from a secret manager or protected environment configuration. `.env` is listed in `.gitignore` and must never be committed.
+
+Settings are read from environment variables and `.env` **once, at startup**, and are validated by a typed `Settings` class (`app/config.py`). The API refuses to start if `STORAGE_BACKEND` is not `database` or `memory`, or if the database backend is selected without a `DATABASE_URL`.
+
+## 4. Install and run
 
 ```bash
 uv sync
-```
-
-`uv sync` downloads Python 3.13 if it is missing, creates `.venv/`, and installs the exact dependency versions recorded in `uv.lock`.
-
-## Run the API
-
-```bash
 uv run uvicorn app.main:app --reload
 ```
 
+- `uv sync` downloads Python 3.13 if needed, creates `.venv/`, and installs the exact versions recorded in `uv.lock`.
 - `app.main:app` tells Uvicorn to load the `app` object from `app/main.py`.
 - `--reload` restarts the server when source code changes.
 
-The server runs at `http://localhost:8000`.
+The server runs at `http://localhost:8000`. To confirm the tables were created:
+
+```bash
+psql -h localhost -U postgres -d library_management -c '\d'
+```
+
+### Verify that data persists
+
+1. Create a Member (example below).
+2. Stop the server with `Ctrl+C` and start it again.
+3. `GET /members` still returns the Member.
+
+With `STORAGE_BACKEND=memory`, the same steps return an empty list, because in-memory data lives only as long as the process.
 
 ## Explore the API
 
@@ -93,9 +137,11 @@ The server runs at `http://localhost:8000`.
 | `409 Conflict` | An ISBN, email, or membership ID is already used by another record, or a Member who still has Books is being deleted. |
 | `422 Unprocessable Content` | The request body or path ID fails validation, for example a missing field, bad format, value out of range, or unknown field. |
 
+Error bodies contain a short `detail` message. Raw database errors are never returned to clients.
+
 ## Example requests
 
-The application starts with one sample Member (ID `1`) and one sample Book (ID `1`). The examples below create a new Member and then a Book borrowed by that Member.
+The database starts empty. PostgreSQL generates IDs, so use the `id` values from your own responses; the examples below assume a fresh database.
 
 ### 1. Create a Member — `POST /members`
 
@@ -103,7 +149,7 @@ The application starts with one sample Member (ID `1`) and one sample Book (ID `
 {
   "name": "Grace Hopper",
   "email": "grace@example.com",
-  "membership_id": "LIB-0002",
+  "membership_id": "LIB-0001",
   "phone": "555-987-6543"
 }
 ```
@@ -114,9 +160,9 @@ Response `201 Created`:
 {
   "name": "Grace Hopper",
   "email": "grace@example.com",
-  "membership_id": "LIB-0002",
+  "membership_id": "LIB-0001",
   "phone": "555-987-6543",
-  "id": 2
+  "id": 1
 }
 ```
 
@@ -128,7 +174,7 @@ Response `201 Created`:
   "author": "Robert C. Martin",
   "isbn": "978-0-13-235088-4",
   "published_year": 2008,
-  "member_id": 2
+  "member_id": 1
 }
 ```
 
@@ -140,12 +186,12 @@ Response `201 Created` (hyphens are removed from the stored ISBN):
   "author": "Robert C. Martin",
   "isbn": "9780132350884",
   "published_year": 2008,
-  "member_id": 2,
-  "id": 2
+  "member_id": 1,
+  "id": 1
 }
 ```
 
-### 3. List that Member's Books — `GET /members/2/books`
+### 3. List that Member's Books — `GET /members/1/books`
 
 Response `200 OK`:
 
@@ -156,13 +202,13 @@ Response `200 OK`:
     "author": "Robert C. Martin",
     "isbn": "9780132350884",
     "published_year": 2008,
-    "member_id": 2,
-    "id": 2
+    "member_id": 1,
+    "id": 1
   }
 ]
 ```
 
-### 4. Try to delete that Member — `DELETE /members/2`
+### 4. Try to delete that Member — `DELETE /members/1`
 
 Response `409 Conflict`:
 
@@ -170,7 +216,7 @@ Response `409 Conflict`:
 { "detail": "Delete or reassign the member's books before deleting the member" }
 ```
 
-To delete the Member, first delete the Book (`DELETE /books/2`) or reassign it by sending `PUT /books/2` with a different `member_id`.
+To delete the Member, first delete the Book (`DELETE /books/1`) or reassign it to another Member by sending `PUT /books/1` with a different `member_id`.
 
 ### 5. Create a Book for a Member that does not exist — `POST /books`
 
@@ -180,7 +226,15 @@ Sending the Book body above with `"member_id": 99` returns `404 Not Found`:
 { "detail": "Member not found" }
 ```
 
-### 6. Send invalid data — `POST /members`
+### 6. Reuse an email address — `POST /members`
+
+Sending the Member body from step 1 again (or with `GRACE@example.com`) returns `409 Conflict`:
+
+```json
+{ "detail": "A member with this email already exists" }
+```
+
+### 7. Send invalid data — `POST /members`
 
 ```json
 {
@@ -191,7 +245,7 @@ Sending the Book body above with `"member_id": 99` returns `404 Not Found`:
 }
 ```
 
-Response `422 Unprocessable Content`. The `detail` list names each field that failed and the rule it broke. The route function does not run when validation fails.
+Response `422 Unprocessable Content`. The `detail` list names each field that failed and the rule it broke. Nothing reaches the service or the database when validation fails.
 
 ## Validation rules
 
@@ -216,39 +270,116 @@ Response `422 Unprocessable Content`. The `detail` list names each field that fa
 
 ### Rules for every resource
 
-- `id` is generated by the server. It appears in responses and cannot be sent in a request body.
+- `id` is generated by PostgreSQL (or by the in-memory service). It appears in responses and cannot be sent in a request body.
 - Unknown fields in a request body are rejected.
 - Path IDs must be positive integers, so `/books/0` returns `422`.
 
-## Temporary data
+## How the application is organized
 
-Members and Books are stored in Python lists while the server runs. All changes are lost when the server restarts. This limitation is intentional for Assignment 1.
+### Request flow
+
+```text
+HTTP request
+    ↓
+Router        validated input, service call, status code, HTTP error translation
+    ↓
+Service       Library business rules and the transaction boundary
+    ↓
+Repository    SQLAlchemy queries and writes
+    ↓
+ORM model     Python class ↔ PostgreSQL table
+    ↓
+PostgreSQL    durable Members and Books
+```
+
+- **Schemas** (`app/schemas/`) are the API contract: Pydantic validates requests at the boundary and shapes responses.
+- **Routers** (`app/routers/`) handle HTTP only. They receive a service through `Depends(...)`, call it, and translate application exceptions (`app/exceptions.py`) into `HTTPException` responses (`app/routers/http_errors.py`). They never open Sessions or write SQL.
+- **Services** (`app/services/`) implement use cases such as "create a Book for an existing Member" and raise application exceptions, not HTTP errors. Each resource has an abstract contract (`base.py`) with a database implementation (`database.py`) and an in-memory implementation (`in_memory.py`).
+- **Repositories** (`app/repositories/`) contain SQLAlchemy queries. They do not decide HTTP responses or business policy.
+- **ORM models** (`app/models/`) define the `members` and `books` tables, their constraints, and the relationship between them.
+
+### Sessions and transactions
+
+`app/database/session.py` creates **one Engine** (which owns the connection pool) and **one session factory** at startup. Database services receive the factory, never a shared Session. Every service operation opens its own short-lived Session:
+
+- Reads use `with self._session_factory() as session:`.
+- Writes use `with self._session_factory.begin() as session:`. This commits when the block finishes and rolls back if any exception escapes, so a use case that needs several repository calls (for example, check the Member, check the ISBN, insert the Book) succeeds or fails as one unit.
+
+### Database integrity
+
+The services check existence and uniqueness first so they can return clear `404` and `409` responses. PostgreSQL enforces the same rules as a second line of defense:
+
+| Rule | Database constraint |
+|---|---|
+| Unique email | `uq_members_email` |
+| Unique membership ID | `uq_members_membership_id` |
+| Unique ISBN | `uq_books_isbn` |
+| A Book references an existing Member; a Member with Books cannot be deleted | `fk_books_member_id_members` (`ON DELETE RESTRICT`) |
+| Required values | `NOT NULL` on every column |
+
+If two requests race past a service check at the same moment, the constraint rejects the second write. `app/database/errors.py` recognizes the constraint by name and converts it to the same application exception, so the client still receives the normal `404` or `409` response and the transaction is rolled back.
+
+### Backend selection and dependency injection
+
+At startup, the `lifespan` function in `app/main.py` loads `Settings`, builds either the database or the in-memory services, and stores them on `app.state`. `app/dependencies.py` exposes them to routes:
+
+```python
+def create_book(data: BookCreate, service: BookService = Depends(get_book_service)) -> Book:
+```
+
+The route depends on the `BookService` contract, so switching `STORAGE_BACKEND` changes the implementation without changing any route code.
 
 ## Project structure
 
 ```text
 .
 ├── app/
+│   ├── database/
+│   │   ├── __init__.py
+│   │   ├── errors.py          # Maps constraint violations to application exceptions
+│   │   └── session.py         # Engine and session factory, created once at startup
+│   ├── models/
+│   │   ├── __init__.py        # Registers every ORM model with SQLAlchemy
+│   │   ├── base.py            # DeclarativeBase shared by all models
+│   │   ├── book.py            # books table, ISBN unique constraint, foreign key
+│   │   └── member.py          # members table, email and membership ID constraints
+│   ├── repositories/
+│   │   ├── __init__.py
+│   │   ├── books.py           # SQLAlchemy queries for Books
+│   │   └── members.py         # SQLAlchemy queries for Members
 │   ├── routers/
 │   │   ├── __init__.py
-│   │   ├── books.py        # /books endpoints and ISBN uniqueness check
-│   │   └── members.py      # /members endpoints, uniqueness checks, a Member's Books
+│   │   ├── books.py           # /books endpoints
+│   │   ├── http_errors.py     # Application outcome → HTTPException
+│   │   └── members.py         # /members endpoints and a Member's Books
 │   ├── schemas/
 │   │   ├── __init__.py
-│   │   ├── books.py        # BookCreate, BookUpdate, BookResponse
-│   │   └── members.py      # MemberCreate, MemberUpdate, MemberResponse
+│   │   ├── books.py           # BookCreate, BookUpdate, BookResponse
+│   │   └── members.py         # MemberCreate, MemberUpdate, MemberResponse
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── books/
+│   │   │   ├── __init__.py
+│   │   │   ├── base.py        # BookService contract
+│   │   │   ├── database.py    # PostgreSQL implementation
+│   │   │   └── in_memory.py   # Process-local implementation
+│   │   ├── members/
+│   │   │   ├── __init__.py
+│   │   │   ├── base.py        # MemberService contract
+│   │   │   ├── database.py    # PostgreSQL implementation
+│   │   │   └── in_memory.py   # Process-local implementation
+│   │   └── in_memory_store.py # Lists and lock shared by the in-memory services
 │   ├── __init__.py
-│   ├── main.py             # FastAPI app, OpenAPI metadata, router registration
-│   └── storage.py          # In-memory lists with sample data
+│   ├── config.py              # Typed Settings and the StorageBackend enum
+│   ├── dependencies.py        # FastAPI dependencies that return the selected services
+│   ├── exceptions.py          # Application exceptions raised by services
+│   └── main.py                # App creation, startup wiring, router registration
+├── scripts/
+│   └── setup_database.sql     # Creates the local role and database
+├── .env.example               # Documented settings with safe local defaults
 ├── .gitignore
 ├── .python-version
 ├── pyproject.toml
 ├── README.md
 └── uv.lock
 ```
-
-The project is organized in layers:
-
-- **Schemas** (`app/schemas/`) define the data contract: what a valid request looks like and what a response contains.
-- **Routers** (`app/routers/`) handle HTTP concerns and business rules that need other records, such as uniqueness, whether a referenced Member exists, and blocking deletion.
-- **Storage** (`app/storage.py`) holds the data. Keeping it in its own module makes it easier to replace with a database in Assignment 2.

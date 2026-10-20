@@ -63,6 +63,10 @@ class MemberUpdate(MemberBase):
 class MemberResponse(MemberBase):
     """Describe a Member returned by the API."""
 
+    # Pydantic reads values from SQLAlchemy model attributes, not only from
+    # dictionaries, so routes can return ORM objects through this schema.
+    model_config = ConfigDict(from_attributes=True)
+
     # The server generates the ID, so it appears in responses but not in
     # MemberCreate or MemberUpdate request bodies.
     id: int = Field(
