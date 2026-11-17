@@ -1,6 +1,6 @@
 [project]
 name = "library-management-api"
-version = "0.2.0"
+version = "0.3.0"
 description = "Library Management System API for managing Books and the Members who borrow them"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -9,4 +9,24 @@ dependencies = [
     "psycopg[binary]>=3.2.0",
     "pydantic-settings>=2.0.0",
     "sqlalchemy>=2.0.0",
+]
+
+[tool.pytest.ini_options]
+# The importable package lives in ./app and is not installed as a
+# distribution, so add the repository root to sys.path while pytest runs.
+pythonpath = ["."]
+testpaths = ["tests"]
+# importlib mode lets test files share source-mirrored names such as
+# test_books.py in several folders without needing __init__.py packages.
+addopts = ["--import-mode=importlib"]
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.10.0",
+    "jsonschema>=4.23.0",
+    "mockito>=1.5.4",
+    "openapi-spec-validator>=0.9.0",
+    "pytest>=9.1.1",
+    "schemathesis>=4.24.3",
+    "testcontainers[postgres]>=4.15.0",
 ]

@@ -4,6 +4,8 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.ids import MAX_ID
+
 # The printing press made mass-produced books possible around 1450, so the
 # assignment uses it as the earliest valid publication year.
 EARLIEST_PUBLISHED_YEAR = 1450
@@ -49,6 +51,7 @@ class BookBase(BaseModel):
     )
     member_id: int = Field(
         gt=0,
+        le=MAX_ID,
         description="The identifier of the existing member who borrowed this book.",
         examples=[1],
     )

@@ -2,8 +2,14 @@
 
 from fastapi import Request
 
+from app.config import Settings
 from app.services.books import BookService
 from app.services.members import MemberService
+
+
+def get_settings(request: Request) -> Settings:
+    """Return the validated settings created once during application startup."""
+    return request.app.state.settings
 
 
 def get_member_service(request: Request) -> MemberService:

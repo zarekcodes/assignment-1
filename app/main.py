@@ -72,7 +72,7 @@ app = FastAPI(
         "stored in PostgreSQL by default, or in process memory when the in-memory "
         "storage backend is selected."
     ),
-    version="0.2.0",
+    version="0.3.0",
     openapi_tags=tags_metadata,
     lifespan=lifespan,
 )
